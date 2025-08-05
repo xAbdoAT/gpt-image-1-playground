@@ -8,6 +8,7 @@ import { PasswordDialog } from '@/components/password-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { calculateApiCost, type CostDetails } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
+import { safeLocalStorage } from '@/lib/storage';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
 
@@ -65,6 +66,7 @@ type ApiImageResponseItem = {
 };
 
 export default function HomePage() {
+    const [isClient, setIsClient] = React.useState(false);
     const [mode, setMode] = React.useState<'generate' | 'edit'>('generate');
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
@@ -110,16 +112,22 @@ export default function HomePage() {
     const [genBackground, setGenBackground] = React.useState<GenerationFormData['background']>('auto');
     const [genModeration, setGenModeration] = React.useState<GenerationFormData['moderation']>('auto');
 
+    React.useEffect(() => {
+        setIsClient(true);
+    }, []);
+
     const getImageSrc = React.useCallback(
         (filename: string): string | undefined => {
+            // First check if we have a cached blob URL
             if (blobUrlCache[filename]) {
                 return blobUrlCache[filename];
             }
 
+            // If not cached, try to get from IndexedDB and create blob URL
             const record = allDbImages?.find((img) => img.filename === filename);
             if (record?.blob) {
                 const url = URL.createObjectURL(record.blob);
-
+                // Don't call setState during render - this will be handled by useEffect
                 return url;
             }
 
@@ -137,7 +145,7 @@ export default function HomePage() {
                 }
             });
         };
-    }, [blobUrlCache]);
+    }, []); // Only run cleanup on component unmount, not on every blobUrlCache change
 
     React.useEffect(() => {
         return () => {
@@ -146,25 +154,29 @@ export default function HomePage() {
     }, [editSourceImagePreviewUrls]);
 
     React.useEffect(() => {
+        if (!isClient) return;
+        
         try {
-            const storedHistory = localStorage.getItem('openaiImageHistory');
+            const storedHistory = safeLocalStorage.getItem('openaiImageHistory');
             if (storedHistory) {
                 const parsedHistory: HistoryMetadata[] = JSON.parse(storedHistory);
                 if (Array.isArray(parsedHistory)) {
                     setHistory(parsedHistory);
                 } else {
                     console.warn('Invalid history data found in localStorage.');
-                    localStorage.removeItem('openaiImageHistory');
+                    safeLocalStorage.removeItem('openaiImageHistory');
                 }
             }
         } catch (e) {
             console.error('Failed to load or parse history from localStorage:', e);
-            localStorage.removeItem('openaiImageHistory');
+            safeLocalStorage.removeItem('openaiImageHistory');
         }
         setIsInitialLoad(false);
-    }, []);
+    }, [isClient]);
 
     React.useEffect(() => {
+        if (!isClient) return;
+        
         const fetchAuthStatus = async () => {
             try {
                 const response = await fetch('/api/auth-status');
@@ -180,21 +192,21 @@ export default function HomePage() {
         };
 
         fetchAuthStatus();
-        const storedHash = localStorage.getItem('clientPasswordHash');
+        const storedHash = safeLocalStorage.getItem('clientPasswordHash');
         if (storedHash) {
             setClientPasswordHash(storedHash);
         }
-    }, []);
+    }, [isClient]);
 
     React.useEffect(() => {
-        if (!isInitialLoad) {
-            try {
-                localStorage.setItem('openaiImageHistory', JSON.stringify(history));
-            } catch (e) {
-                console.error('Failed to save history to localStorage:', e);
-            }
+        if (!isClient || isInitialLoad) return;
+        
+        try {
+            safeLocalStorage.setItem('openaiImageHistory', JSON.stringify(history));
+        } catch (e) {
+            console.error('Failed to save history to localStorage:', e);
         }
-    }, [history, isInitialLoad]);
+    }, [history, isInitialLoad, isClient]);
 
     React.useEffect(() => {
         return () => {
@@ -203,17 +215,41 @@ export default function HomePage() {
     }, [editSourceImagePreviewUrls]);
 
     React.useEffect(() => {
-        const storedPref = localStorage.getItem('imageGenSkipDeleteConfirm');
+        if (!isClient) return;
+        
+        const storedPref = safeLocalStorage.getItem('imageGenSkipDeleteConfirm');
         if (storedPref === 'true') {
             setSkipDeleteConfirmation(true);
         } else if (storedPref === 'false') {
             setSkipDeleteConfirmation(false);
         }
-    }, []);
+    }, [isClient]);
 
     React.useEffect(() => {
-        localStorage.setItem('imageGenSkipDeleteConfirm', String(skipDeleteConfirmation));
-    }, [skipDeleteConfirmation]);
+        if (!isClient) return;
+        
+        safeLocalStorage.setItem('imageGenSkipDeleteConfirm', String(skipDeleteConfirmation));
+    }, [skipDeleteConfirmation, isClient]);
+
+    // Handle blob URL caching for IndexedDB images
+    React.useEffect(() => {
+        if (!allDbImages || effectiveStorageModeClient !== 'indexeddb') return;
+
+        const newBlobUrls: Record<string, string> = {};
+        let hasNewUrls = false;
+
+        allDbImages.forEach((record) => {
+            if (!blobUrlCache[record.filename] && record.blob) {
+                const url = URL.createObjectURL(record.blob);
+                newBlobUrls[record.filename] = url;
+                hasNewUrls = true;
+            }
+        });
+
+        if (hasNewUrls) {
+            setBlobUrlCache((prev) => ({ ...prev, ...newBlobUrls }));
+        }
+    }, [allDbImages, effectiveStorageModeClient, blobUrlCache]);
 
     React.useEffect(() => {
         const handlePaste = (event: ClipboardEvent) => {
@@ -274,7 +310,7 @@ export default function HomePage() {
         }
         try {
             const hash = await sha256Client(password);
-            localStorage.setItem('clientPasswordHash', hash);
+            safeLocalStorage.setItem('clientPasswordHash', hash);
             setClientPasswordHash(hash);
             setError(null);
             setIsPasswordDialogOpen(false);
@@ -373,10 +409,19 @@ export default function HomePage() {
             }
 
             console.log('API Response:', result);
+            console.log('=== DEBUGGING API RESPONSE ===');
+            console.log('Result type:', typeof result);
+            console.log('Result keys:', Object.keys(result));
+            console.log('Images array:', result.images);
+            console.log('Effective storage mode client:', effectiveStorageModeClient);
+            console.log('=== END DEBUGGING ===');
 
             if (result.images && result.images.length > 0) {
                 durationMs = Date.now() - startTime;
                 console.log(`API call successful. Duration: ${durationMs}ms`);
+                console.log(`Received ${result.images.length} images from API`);
+                console.log('First image data:', result.images[0]);
+                console.log('Storage mode:', effectiveStorageModeClient);
 
                 let historyQuality: GenerationFormData['quality'] = 'auto';
                 let historyBackground: GenerationFormData['background'] = 'auto';
@@ -415,57 +460,97 @@ export default function HomePage() {
                     costDetails: costDetails
                 };
 
-                let newImageBatchPromises: Promise<{ path: string; filename: string } | null>[] = [];
                 if (effectiveStorageModeClient === 'indexeddb') {
-                    console.log('Processing images for IndexedDB storage...');
-                    newImageBatchPromises = result.images.map(async (img: ApiImageResponseItem) => {
+                    console.log(`Processing ${result.images.length} images for IndexedDB storage...`);
+                    console.log('Effective storage mode is indexeddb, starting processing...');
+                    
+                    // Process images sequentially to avoid race conditions
+                    const processedImages: { path: string; filename: string }[] = [];
+                    
+                    for (let i = 0; i < result.images.length; i++) {
+                        const img = result.images[i];
+                        console.log(`Processing image ${i + 1}/${result.images.length}: ${img.filename}`);
+                        
                         if (img.b64_json) {
                             try {
+                                console.log(`Processing image ${i + 1}/${result.images.length}: ${img.filename} with b64_json data`);
+                                
                                 const byteCharacters = atob(img.b64_json);
                                 const byteNumbers = new Array(byteCharacters.length);
-                                for (let i = 0; i < byteCharacters.length; i++) {
-                                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                                for (let j = 0; j < byteCharacters.length; j++) {
+                                    byteNumbers[j] = byteCharacters.charCodeAt(j);
                                 }
                                 const byteArray = new Uint8Array(byteNumbers);
 
                                 const actualMimeType = getMimeTypeFromFormat(img.output_format);
                                 const blob = new Blob([byteArray], { type: actualMimeType });
 
+                                // Save to IndexedDB
                                 await db.images.put({ filename: img.filename, blob });
-                                console.log(`Saved ${img.filename} to IndexedDB with type ${actualMimeType}.`);
+                                console.log(`✓ Saved ${img.filename} to IndexedDB with type ${actualMimeType} (${blob.size} bytes).`);
 
+                                // Create blob URL and cache it immediately
                                 const blobUrl = URL.createObjectURL(blob);
+                                
+                                // Ensure the blob data persists by keeping a reference
+                                const blobRef = { blob, url: blobUrl };
+                                
+                                // Store the blob URL in cache
                                 setBlobUrlCache((prev) => ({ ...prev, [img.filename]: blobUrl }));
 
-                                return { filename: img.filename, path: blobUrl };
+                                processedImages.push({ filename: img.filename, path: blobUrl });
+                                console.log(`✓ Created blob URL for ${img.filename}: ${blobUrl.substring(0, 50)}... (size: ${blob.size} bytes)`);
+                                
                             } catch (dbError) {
-                                console.error(`Error saving blob ${img.filename} to IndexedDB:`, dbError);
-                                setError(`Failed to save image ${img.filename} to local database.`);
-                                return null;
+                                console.error(`✗ Error processing ${img.filename}:`, dbError);
+                                setError(`Failed to process image ${img.filename}.`);
                             }
                         } else {
-                            console.warn(`Image ${img.filename} missing b64_json in indexeddb mode.`);
-                            return null;
+                            console.warn(`⚠ Image ${img.filename} missing b64_json in indexeddb mode.`);
+                            console.log('Image data:', img);
                         }
+                    }
+                    
+                    console.log(`Successfully processed ${processedImages.length}/${result.images.length} images for IndexedDB storage.`);
+                    
+                    // Immediately update blob URL cache with all processed images
+                    const newBlobUrls: Record<string, string> = {};
+                    processedImages.forEach((img) => {
+                        newBlobUrls[img.filename] = img.path;
                     });
+                    setBlobUrlCache((prev) => ({ ...prev, ...newBlobUrls }));
+                    
+                    console.log('Blob URLs created:', Object.keys(newBlobUrls));
+                    console.log('Processed images:', processedImages.map(img => ({ filename: img.filename, path: img.path.substring(0, 50) + '...' })));
+                    
+                    // Set the image batch after a small delay to ensure blob URLs are ready
+                    setTimeout(() => {
+                        setLatestImageBatch(processedImages);
+                        setImageOutputView(processedImages.length > 1 ? 'grid' : 0);
+                        console.log('Image batch set with processed images:', processedImages.length);
+                    }, 100);
+                    
+                    // Force refresh of IndexedDB data by triggering a re-query
+                    setTimeout(() => {
+                        console.log('Forcing IndexedDB data refresh...');
+                        // This will trigger useLiveQuery to re-fetch data
+                        db.images.toArray().then(() => {
+                            console.log('IndexedDB data refresh completed.');
+                        });
+                    }, 200);
+                    
                 } else {
-                    newImageBatchPromises = result.images
+                    // FS mode processing
+                    const fsProcessedImages = result.images
                         .filter((img: ApiImageResponseItem) => !!img.path)
-                        .map((img: ApiImageResponseItem) =>
-                            Promise.resolve({
-                                path: img.path!,
-                                filename: img.filename
-                            })
-                        );
+                        .map((img: ApiImageResponseItem) => ({
+                            path: img.path!,
+                            filename: img.filename
+                        }));
+
+                    setLatestImageBatch(fsProcessedImages);
+                    setImageOutputView(fsProcessedImages.length > 1 ? 'grid' : 0);
                 }
-
-                const processedImages = (await Promise.all(newImageBatchPromises)).filter(Boolean) as {
-                    path: string;
-                    filename: string;
-                }[];
-
-                setLatestImageBatch(processedImages);
-                setImageOutputView(processedImages.length > 1 ? 'grid' : 0);
 
                 setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
             } else {
@@ -538,7 +623,7 @@ export default function HomePage() {
             setError(null);
 
             try {
-                localStorage.removeItem('openaiImageHistory');
+                safeLocalStorage.removeItem('openaiImageHistory');
                 console.log('Cleared history metadata from localStorage.');
 
                 if (effectiveStorageModeClient === 'indexeddb') {
@@ -697,6 +782,31 @@ export default function HomePage() {
         setItemToDeleteConfirm(null);
     };
 
+    if (!isClient) {
+        return (
+            <main className='flex min-h-screen flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
+                <div className='w-full max-w-7xl space-y-6'>
+                    <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
+                        <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
+                            <div className='flex h-full w-full items-center justify-center'>
+                                <div className='text-center text-white/60'>
+                                    <p>Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className='flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
+                            <div className='flex h-full w-full items-center justify-center'>
+                                <div className='text-center text-white/60'>
+                                    <p>Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        );
+    }
+
     return (
         <main className='flex min-h-screen flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
             <PasswordDialog
@@ -710,7 +820,7 @@ export default function HomePage() {
                         : 'Set a password to use for API requests.'
                 }
             />
-            <div className='w-full max-w-7xl space-y-6'>
+            <div className='w-full max-w-7xl space-y-6' suppressHydrationWarning>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
                     <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
                         <div className={mode === 'generate' ? 'block h-full w-full' : 'hidden'}>

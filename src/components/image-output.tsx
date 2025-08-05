@@ -89,6 +89,12 @@ export function ImageOutput({
                                         style={{ objectFit: 'contain' }}
                                         sizes='(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw'
                                         unoptimized
+                                        onError={(e) => {
+                                            console.error(`Failed to load image ${img.filename}:`, e);
+                                        }}
+                                        onLoad={() => {
+                                            console.log(`Successfully loaded image ${img.filename}`);
+                                        }}
                                     />
                                 </div>
                             ))}
@@ -101,6 +107,12 @@ export function ImageOutput({
                             height={512}
                             className='max-h-full max-w-full object-contain'
                             unoptimized
+                            onError={(e) => {
+                                console.error(`Failed to load single image ${imageBatch[viewMode].filename}:`, e);
+                            }}
+                            onLoad={() => {
+                                console.log(`Successfully loaded single image ${imageBatch[viewMode].filename}`);
+                            }}
                         />
                     ) : (
                         <div className='text-center text-white/40'>
@@ -150,6 +162,12 @@ export function ImageOutput({
                                     height={28}
                                     className='h-full w-full object-cover'
                                     unoptimized
+                                    onError={(e) => {
+                                        console.error(`Failed to load thumbnail ${img.filename}:`, e);
+                                    }}
+                                    onLoad={() => {
+                                        console.log(`Successfully loaded thumbnail ${img.filename}`);
+                                    }}
                                 />
                             </Button>
                         ))}
