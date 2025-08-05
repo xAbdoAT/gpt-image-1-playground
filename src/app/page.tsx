@@ -249,7 +249,7 @@ export default function HomePage() {
         if (hasNewUrls) {
             setBlobUrlCache((prev) => ({ ...prev, ...newBlobUrls }));
         }
-    }, [allDbImages, effectiveStorageModeClient, blobUrlCache]);
+    }, [allDbImages, blobUrlCache]);
 
     React.useEffect(() => {
         const handlePaste = (event: ClipboardEvent) => {
@@ -491,9 +491,6 @@ export default function HomePage() {
 
                                 // Create blob URL and cache it immediately
                                 const blobUrl = URL.createObjectURL(blob);
-                                
-                                // Ensure the blob data persists by keeping a reference
-                                const blobRef = { blob, url: blobUrl };
                                 
                                 // Store the blob URL in cache
                                 setBlobUrlCache((prev) => ({ ...prev, [img.filename]: blobUrl }));
