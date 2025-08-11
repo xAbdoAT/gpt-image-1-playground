@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-    title: 'gpt-image-1 playground',
+    title: 'GPT one',
     description: "Generate and edit images using OpenAI's gpt-image-1 model.",
     icons: {
         icon: '/favicon.svg'
