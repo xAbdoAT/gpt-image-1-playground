@@ -129,4 +129,4 @@ export async function prepareImagesForDownload(images: DownloadableImage[]): Pro
     }
     
     return preparedImages;
-} 
+}
