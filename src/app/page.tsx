@@ -73,7 +73,7 @@ export default function HomePage() {
     const [isLoading, setIsLoading] = React.useState(false);
     const [isSendingToEdit, setIsSendingToEdit] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
-    const [latestImageBatch, setLatestImageBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
+    const [latestImageBatch, setLatestImageBatch] = React.useState<{ path: string; filename: string; blob?: Blob }[] | null>(null);
     const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
     const [history, setHistory] = React.useState<HistoryMetadata[]>([]);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
@@ -465,7 +465,7 @@ export default function HomePage() {
                     console.log('Effective storage mode is indexeddb, starting processing...');
                     
                     // Process images sequentially to avoid race conditions
-                    const processedImages: { path: string; filename: string }[] = [];
+                    const processedImages: { path: string; filename: string; blob?: Blob }[] = [];
                     
                     for (let i = 0; i < result.images.length; i++) {
                         const img = result.images[i];
@@ -495,7 +495,7 @@ export default function HomePage() {
                                 // Store the blob URL in cache
                                 setBlobUrlCache((prev) => ({ ...prev, [img.filename]: blobUrl }));
 
-                                processedImages.push({ filename: img.filename, path: blobUrl });
+                                processedImages.push({ filename: img.filename, path: blobUrl, blob });
                                 console.log(`✓ Created blob URL for ${img.filename}: ${blobUrl.substring(0, 50)}... (size: ${blob.size} bytes)`);
                                 
                             } catch (dbError) {
@@ -574,14 +574,21 @@ export default function HomePage() {
 
         const selectedBatchPromises = item.images.map(async (imgInfo) => {
             let path: string | undefined;
+            let blob: Blob | undefined;
+            
             if (originalStorageMode === 'indexeddb') {
                 path = getImageSrc(imgInfo.filename);
+                // Try to get blob from IndexedDB
+                const record = allDbImages?.find((img) => img.filename === imgInfo.filename);
+                if (record?.blob) {
+                    blob = record.blob;
+                }
             } else {
                 path = `/api/image/${imgInfo.filename}`;
             }
 
             if (path) {
-                return { path, filename: imgInfo.filename };
+                return { path, filename: imgInfo.filename, blob };
             } else {
                 console.warn(
                     `Could not get image source for history item: ${imgInfo.filename} (mode: ${originalStorageMode})`
@@ -592,7 +599,7 @@ export default function HomePage() {
         });
 
         Promise.all(selectedBatchPromises).then((resolvedBatch) => {
-            const validImages = resolvedBatch.filter(Boolean) as { path: string; filename: string }[];
+            const validImages = resolvedBatch.filter(Boolean) as { path: string; filename: string; blob?: Blob }[];
 
             if (validImages.length !== item.images.length && !error) {
                 setError(
