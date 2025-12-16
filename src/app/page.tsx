@@ -665,14 +665,9 @@ export default function HomePage() {
         }
     };
 
-<<<<<<< HEAD
     const handleHistorySelect = React.useCallback(
         (item: HistoryMetadata) => {
             const originalStorageMode = item.storageModeUsed || 'fs';
-=======
-    const handleHistorySelect = (item: HistoryMetadata) => {
-        const originalStorageMode = item.storageModeUsed || 'fs';
->>>>>>> 7420149 (chore: remove debug console.log statements from frontend)
 
             const selectedBatchPromises = item.images.map(async (imgInfo) => {
                 let path: string | undefined;
@@ -724,20 +719,12 @@ export default function HomePage() {
             setError(null);
 
             try {
-<<<<<<< HEAD
                 safeLocalStorage.removeItem('openaiImageHistory');
 
                 if (effectiveStorageModeClient === 'indexeddb') {
                     await db.images.clear();
                     blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                     blobUrlCacheRef.current.clear();
-=======
-                localStorage.removeItem('openaiImageHistory');
-
-                if (effectiveStorageModeClient === 'indexeddb') {
-                    await db.images.clear();
-                    setBlobUrlCache({});
->>>>>>> 7420149 (chore: remove debug console.log statements from frontend)
                 }
             } catch (e) {
                 console.error('Failed during history clearing:', e);
@@ -776,13 +763,9 @@ export default function HomePage() {
                     throw new Error(`Image ${filename} not found in local database.`);
                 }
             } else {
-<<<<<<< HEAD
                 const fsPath =
                     latestImageBatch?.find((img) => img.filename === filename)?.path || `/api/image/${filename}`;
                 const response = await fetch(fsPath);
-=======
-                const response = await fetch(`/api/image/${filename}`);
->>>>>>> 7420149 (chore: remove debug console.log statements from frontend)
                 if (!response.ok) {
                     throw new Error(`Failed to fetch image: ${response.statusText}`);
                 }
@@ -814,21 +797,13 @@ export default function HomePage() {
         }
     };
 
-<<<<<<< HEAD
     const executeDeleteItem = React.useCallback(
         async (item: HistoryMetadata) => {
             if (!item) return;
             setError(null);
-=======
-    const executeDeleteItem = async (item: HistoryMetadata) => {
-        if (!item) return;
-        setError(null);
->>>>>>> 7420149 (chore: remove debug console.log statements from frontend)
 
             const { images: imagesInEntry, storageModeUsed, timestamp } = item;
             const filenamesToDelete = imagesInEntry.map((img) => img.filename);
-
-<<<<<<< HEAD
             try {
                 if (storageModeUsed === 'indexeddb') {
                     await db.images.where('filename').anyOf(filenamesToDelete).delete();
@@ -866,32 +841,7 @@ export default function HomePage() {
                 setError(e instanceof Error ? e.message : 'An unexpected error occurred during deletion.');
             } finally {
                 setItemToDeleteConfirm(null);
-=======
-        try {
-            if (storageModeUsed === 'indexeddb') {
-                await db.images.where('filename').anyOf(filenamesToDelete).delete();
-                setBlobUrlCache((prevCache) => {
-                    const newCache = { ...prevCache };
-                    filenamesToDelete.forEach((fn) => delete newCache[fn]);
-                    return newCache;
-                });
-            } else if (storageModeUsed === 'fs') {
-                const apiPayload: { filenames: string[]; passwordHash?: string } = { filenames: filenamesToDelete };
-                if (isPasswordRequiredByBackend && clientPasswordHash) {
-                    apiPayload.passwordHash = clientPasswordHash;
-                }
-
-                const response = await fetch('/api/image-delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(apiPayload)
-                });
-
-                const result = await response.json();
-                if (!response.ok) {
-                    throw new Error(result.error || `API deletion failed with status ${response.status}`);
-                }
->>>>>>> 7420149 (chore: remove debug console.log statements from frontend)
+            }
             }
         },
         [isPasswordRequiredByBackend, clientPasswordHash]
