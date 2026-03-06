@@ -109,6 +109,7 @@ export async function POST(request: NextRequest) {
         }
 
         let result: OpenAI.Images.ImagesResponse;
+        const isMiniModel = model === 'gpt-image-1-mini';
 
         if (mode === 'generate') {
             const n = parseInt((formData.get('n') as string) || '1', 10);
@@ -127,16 +128,21 @@ export async function POST(request: NextRequest) {
                 prompt,
                 n: Math.max(1, Math.min(n || 1, 10)),
                 size,
-                quality,
-                output_format,
-                background,
-                moderation
+                quality
             };
 
-            if ((output_format === 'jpeg' || output_format === 'webp') && output_compression_str) {
-                const compression = parseInt(output_compression_str, 10);
-                if (!isNaN(compression) && compression >= 0 && compression <= 100) {
-                    params.output_compression = compression;
+            // background, moderation, output_format, and output_compression are only
+            // supported by gpt-image-1, not gpt-image-1-mini
+            if (!isMiniModel) {
+                params.output_format = output_format;
+                params.background = background;
+                params.moderation = moderation;
+
+                if ((output_format === 'jpeg' || output_format === 'webp') && output_compression_str) {
+                    const compression = parseInt(output_compression_str, 10);
+                    if (!isNaN(compression) && compression >= 0 && compression <= 100) {
+                        params.output_compression = compression;
+                    }
                 }
             }
 
@@ -199,7 +205,9 @@ export async function POST(request: NextRequest) {
                 const buffer = Buffer.from(imageData.b64_json, 'base64');
                 const timestamp = Date.now();
 
-                const fileExtension = validateOutputFormat(formData.get('output_format'));
+                // gpt-image-1-mini always returns PNG regardless of the requested format
+                const fileExtension =
+                    isMiniModel ? 'png' : validateOutputFormat(formData.get('output_format'));
                 const filename = `${timestamp}-${index}.${fileExtension}`;
 
                 if (effectiveStorageMode === 'fs') {
@@ -245,6 +253,14 @@ export async function POST(request: NextRequest) {
             if ('status' in error && typeof error.status === 'number') {
                 status = error.status;
             }
+        }
+
+        // Remap 401 errors from the OpenAI API to 502 (Bad Gateway) so the client
+        // does not confuse an invalid/expired OpenAI API key with an incorrect app
+        // password. The only 401 the client should ever receive is the one we
+        // explicitly return above for a missing or wrong APP_PASSWORD.
+        if (status === 401) {
+            status = 502;
         }
 
         return NextResponse.json({ error: errorMessage }, { status });
