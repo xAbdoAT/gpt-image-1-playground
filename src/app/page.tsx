@@ -320,7 +320,7 @@ export default function HomePage() {
             setIsPasswordDialogOpen(false);
             if (passwordDialogContext === 'retry' && lastApiCallArgs) {
                 console.log('Retrying API call after password save...');
-                await handleApiCall(...lastApiCallArgs);
+                await handleApiCall(lastApiCallArgs[0], hash);
             }
         } catch (e) {
             console.error('Error hashing password:', e);
@@ -340,7 +340,7 @@ export default function HomePage() {
         return 'image/png';
     };
 
-    const handleApiCall = async (formData: GenerationFormData | EditingFormData) => {
+    const handleApiCall = async (formData: GenerationFormData | EditingFormData, explicitPasswordHash?: string | null) => {
         const startTime = Date.now();
         let durationMs = 0;
 
@@ -349,10 +349,11 @@ export default function HomePage() {
         setLatestImageBatch(null);
         setImageOutputView('grid');
 
+        const effectivePasswordHash = explicitPasswordHash ?? clientPasswordHash;
         const apiFormData = new FormData();
-        if (isPasswordRequiredByBackend && clientPasswordHash) {
-            apiFormData.append('passwordHash', clientPasswordHash);
-        } else if (isPasswordRequiredByBackend && !clientPasswordHash) {
+        if (isPasswordRequiredByBackend && effectivePasswordHash) {
+            apiFormData.append('passwordHash', effectivePasswordHash);
+        } else if (isPasswordRequiredByBackend && !effectivePasswordHash) {
             setError('Password is required. Please configure the password by clicking the lock icon.');
             setPasswordDialogContext('initial');
             setIsPasswordDialogOpen(true);
