@@ -1,6 +1,6 @@
 {
-  "name": "nextjs-app",
-  "version": "0.1.0",
+  "name": "gpt-image-playground",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
@@ -26,9 +26,10 @@
     "dexie": "^4.0.11",
     "dexie-react-hooks": "^1.1.7",
     "lucide-react": "^0.503.0",
+    "mime-types": "^3.0.2",
     "next": "15.5.18",
     "next-themes": "^0.4.6",
-    "openai": "^4.96.0",
+    "openai": "^6.34.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.2.0"

@@ -29,6 +29,19 @@ export const MODEL_CONFIGS: BaseModelConfig[] = [
     }
   },
   {
+    id: 'gpt-image-1.5',
+    name: 'GPT Image 1.5',
+    providerId: 'openai',
+    parameters: {
+      sizes: ['1024x1024', '1536x1024', '1024x1536'],
+      qualities: ['low', 'medium', 'high', 'auto'],
+      outputFormats: ['png', 'jpeg', 'webp'],
+      supportsCompression: true,
+      supportsBackground: true,
+      supportsModeration: true
+    }
+  },
+  {
     id: 'gpt-image-1-mini',
     name: 'GPT Image 1 Mini',
     providerId: 'openai',
@@ -38,6 +51,19 @@ export const MODEL_CONFIGS: BaseModelConfig[] = [
       outputFormats: ['png', 'jpeg', 'webp'],
       supportsCompression: true,
       supportsBackground: true,
+      supportsModeration: true
+    }
+  },
+  {
+    id: 'gpt-image-2',
+    name: 'GPT Image 2',
+    providerId: 'openai',
+    parameters: {
+      sizes: ['auto', 'custom', '2048x2048', '3072x2048', '2048x3072'],
+      qualities: ['low', 'medium', 'high', 'auto'],
+      outputFormats: ['png', 'jpeg', 'webp'],
+      supportsCompression: true,
+      supportsBackground: false,
       supportsModeration: true
     }
   }

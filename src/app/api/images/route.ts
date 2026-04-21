@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
 
         const mode = formData.get('mode') as 'generate' | 'edit' | null;
         const prompt = formData.get('prompt') as string | null;
-        const modelId = (formData.get('model') as string | null) || 'gpt-image-1';
+        const modelId = (formData.get('model') as string | null) || 'gpt-image-2';
 
         // Get model info to determine provider
         const modelInfo = getModelById(modelId);
