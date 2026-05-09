@@ -8,6 +8,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
+import { useProviders } from '@/hooks/useProviders';
 import {
     Square,
     RectangleHorizontal,
@@ -36,7 +37,7 @@ export type GenerationFormData = {
     output_compression?: number;
     background: 'transparent' | 'opaque' | 'auto';
     moderation: 'low' | 'auto';
-    model: 'gpt-image-1' | 'gpt-image-1-mini';
+    model: string; // Changed to string to support any model ID
 };
 
 type GenerationFormProps = {
@@ -118,6 +119,7 @@ export function GenerationForm({
     moderation,
     setModeration
 }: GenerationFormProps) {
+    const { providerGroups, loading } = useProviders();
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -156,7 +158,7 @@ export function GenerationForm({
                         )}
                     </div>
                     <CardDescription className='mt-1 text-white/60'>
-                        Create a new image from a text prompt using gpt-image-1 or gpt-image-1-mini.
+                        Create a new image from a text prompt using various AI models.
                     </CardDescription>
                 </div>
                 <ModeToggle currentMode={currentMode} onModeChange={onModeChange} />
@@ -167,19 +169,29 @@ export function GenerationForm({
                         <Label htmlFor='model-select' className='text-white'>
                             Model
                         </Label>
-                        <Select value={model} onValueChange={(value) => setModel(value as GenerationFormData['model'])} disabled={isLoading}>
+                        <Select value={model} onValueChange={(value) => setModel(value)} disabled={isLoading || loading}>
                             <SelectTrigger
                                 id='model-select'
                                 className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
                                 <SelectValue placeholder='Select model' />
                             </SelectTrigger>
-                            <SelectContent className='border-white/20 bg-black text-white'>
-                                <SelectItem value='gpt-image-1' className='focus:bg-white/10'>
-                                    gpt-image-1
-                                </SelectItem>
-                                <SelectItem value='gpt-image-1-mini' className='focus:bg-white/10'>
-                                    gpt-image-1-mini
-                                </SelectItem>
+                            <SelectContent className='border-white/20 bg-black text-white max-h-60'>
+                                {providerGroups.map(providerGroup => (
+                                    <React.Fragment key={providerGroup.id}>
+                                        <SelectItem value={`header-${providerGroup.id}`} disabled className='font-bold text-white/80 py-2'>
+                                            {providerGroup.name}
+                                        </SelectItem>
+                                        {providerGroup.models.map(modelOption => (
+                                            <SelectItem 
+                                                key={modelOption.id} 
+                                                value={modelOption.id} 
+                                                className='pl-6 focus:bg-white/10'
+                                            >
+                                                {modelOption.name}
+                                            </SelectItem>
+                                        ))}
+                                    </React.Fragment>
+                                ))}
                             </SelectContent>
                         </Select>
                     </div>

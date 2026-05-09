@@ -133,6 +133,7 @@ export function HistoryPanel({
                                         <li>Image Input: $2.50 / 1M tokens</li>
                                         <li>Image Output: $8 / 1M tokens</li>
                                     </ul>
+                                    <p className='mt-3 italic text-neutral-500'>Note: Pricing for other models will be displayed when available.</p>
                                 </div>
                                 <div className='space-y-2 py-4 text-sm text-neutral-300'>
                                     <div className='flex justify-between'>
@@ -277,21 +278,25 @@ export function HistoryPanel({
                                                     </DialogHeader>
                                                     <div className='space-y-1 pt-1 text-xs text-neutral-400'>
                                                         <p>Pricing for {item.model === 'gpt-image-1' ? 'GPT Image 1' : item.model === 'gpt-image-1-mini' ? 'GPT Image 1 Mini' : item.model || 'GPT Image 1'}:</p>
-                                                        <ul className='list-disc pl-4'>
-                                                            {(item.model || 'gpt-image-1') === 'gpt-image-1-mini' ? (
-                                                                <>
-                                                                    <li>Text Input: $2 / 1M tokens</li>
-                                                                    <li>Image Input: $2.50 / 1M tokens</li>
-                                                                    <li>Image Output: $8 / 1M tokens</li>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <li>Text Input: $5 / 1M tokens</li>
-                                                                    <li>Image Input: $10 / 1M tokens</li>
-                                                                    <li>Image Output: $40 / 1M tokens</li>
-                                                                </>
-                                                            )}
-                                                        </ul>
+                                                        {item.model === 'gpt-image-1' || item.model === 'gpt-image-1-mini' ? (
+                                                            <ul className='list-disc pl-4'>
+                                                                {(item.model || 'gpt-image-1') === 'gpt-image-1-mini' ? (
+                                                                    <>
+                                                                        <li>Text Input: $2 / 1M tokens</li>
+                                                                        <li>Image Input: $2.50 / 1M tokens</li>
+                                                                        <li>Image Output: $8 / 1M tokens</li>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <li>Text Input: $5 / 1M tokens</li>
+                                                                        <li>Image Input: $10 / 1M tokens</li>
+                                                                        <li>Image Output: $40 / 1M tokens</li>
+                                                                    </>
+                                                                )}
+                                                            </ul>
+                                                        ) : (
+                                                            <p className='italic'>Pricing information not available for this model.</p>
+                                                        )}
                                                     </div>
                                                     <div className='space-y-2 py-4 text-sm text-neutral-300'>
                                                         <div className='flex justify-between'>

@@ -1,13 +1,10 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import path from 'path';
-
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_API_BASE_URL
-});
+import { ProviderFactory } from '@/providers/factory';
+import { getModelById } from '@/providers/registry';
+import { OpenAIImageResponse } from '@/providers/openai/types';
 
 const outputDir = path.resolve(process.cwd(), 'generated-images');
 
@@ -29,20 +26,20 @@ function validateOutputFormat(format: unknown): ValidOutputFormat {
     return 'png'; // default fallback
 }
 
-async function ensureOutputDirExists() {
+async function ensureOutputDirExists(dirPath: string) {
     try {
-        await fs.access(outputDir);
+        await fs.access(dirPath);
     } catch (error: unknown) {
         if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
             try {
-                await fs.mkdir(outputDir, { recursive: true });
-                console.log(`Created output directory: ${outputDir}`);
+                await fs.mkdir(dirPath, { recursive: true });
+                console.log(`Created output directory: ${dirPath}`);
             } catch (mkdirError) {
-                console.error(`Error creating output directory ${outputDir}:`, mkdirError);
+                console.error(`Error creating output directory ${dirPath}:`, mkdirError);
                 throw new Error('Failed to create image output directory.');
             }
         } else {
-            console.error(`Error accessing output directory ${outputDir}:`, error);
+            console.error(`Error accessing output directory ${dirPath}:`, error);
             throw new Error(
                 `Failed to access or ensure image output directory exists. Original error: ${error instanceof Error ? error.message : String(error)}`
             );
@@ -80,7 +77,7 @@ export async function POST(request: NextRequest) {
         );
 
         if (effectiveStorageMode === 'fs') {
-            await ensureOutputDirExists();
+            await ensureOutputDirExists(outputDir);
         }
 
         const formData = await request.formData();
@@ -100,30 +97,35 @@ export async function POST(request: NextRequest) {
 
         const mode = formData.get('mode') as 'generate' | 'edit' | null;
         const prompt = formData.get('prompt') as string | null;
-        const model = (formData.get('model') as 'gpt-image-1' | 'gpt-image-1-mini' | null) || 'gpt-image-1';
+        const modelId = (formData.get('model') as string | null) || 'gpt-image-1';
 
-        console.log(`Mode: ${mode}, Prompt: ${prompt ? prompt.substring(0, 50) + '...' : 'N/A'}`);
+        // Get model info to determine provider
+        const modelInfo = getModelById(modelId);
+        if (!modelInfo) {
+            return NextResponse.json({ error: `Model ${modelId} not found.` }, { status: 400 });
+        }
+
+        const providerId = modelInfo.providerId;
+
+        console.log(`Mode: ${mode}, Model: ${modelId}, Provider: ${providerId}, Prompt: ${prompt ? prompt.substring(0, 50) + '...' : 'N/A'}`);
 
         if (!mode || !prompt) {
             return NextResponse.json({ error: 'Missing required parameters: mode and prompt' }, { status: 400 });
         }
 
-        let result: OpenAI.Images.ImagesResponse;
+        let result: any;
 
         if (mode === 'generate') {
             const n = parseInt((formData.get('n') as string) || '1', 10);
-            const size = (formData.get('size') as OpenAI.Images.ImageGenerateParams['size']) || '1024x1024';
-            const quality = (formData.get('quality') as OpenAI.Images.ImageGenerateParams['quality']) || 'auto';
-            const output_format =
-                (formData.get('output_format') as OpenAI.Images.ImageGenerateParams['output_format']) || 'png';
+            const size = (formData.get('size') as string) || '1024x1024';
+            const quality = (formData.get('quality') as string) || 'auto';
+            const output_format = (formData.get('output_format') as string) || 'png';
             const output_compression_str = formData.get('output_compression') as string | null;
-            const background =
-                (formData.get('background') as OpenAI.Images.ImageGenerateParams['background']) || 'auto';
-            const moderation =
-                (formData.get('moderation') as OpenAI.Images.ImageGenerateParams['moderation']) || 'auto';
+            const background = (formData.get('background') as string) || 'auto';
+            const moderation = (formData.get('moderation') as string) || 'auto';
 
-            const params: OpenAI.Images.ImageGenerateParams = {
-                model,
+            const params: any = {
+                model: modelId,
                 prompt,
                 n: Math.max(1, Math.min(n || 1, 10)),
                 size,
@@ -140,12 +142,12 @@ export async function POST(request: NextRequest) {
                 }
             }
 
-            console.log('Calling OpenAI generate with params:', params);
-            result = await openai.images.generate(params);
+            console.log(`Calling ${providerId} generate with params:`, params);
+            result = await ProviderFactory.generateImage(providerId, params);
         } else if (mode === 'edit') {
             const n = parseInt((formData.get('n') as string) || '1', 10);
-            const size = (formData.get('size') as OpenAI.Images.ImageEditParams['size']) || 'auto';
-            const quality = (formData.get('quality') as OpenAI.Images.ImageEditParams['quality']) || 'auto';
+            const size = (formData.get('size') as string) || 'auto';
+            const quality = (formData.get('quality') as string) || 'auto';
 
             const imageFiles: File[] = [];
             for (const [key, value] of formData.entries()) {
@@ -160,8 +162,8 @@ export async function POST(request: NextRequest) {
 
             const maskFile = formData.get('mask') as File | null;
 
-            const params: OpenAI.Images.ImageEditParams = {
-                model,
+            const params: any = {
+                model: modelId,
                 prompt,
                 image: imageFiles,
                 n: Math.max(1, Math.min(n || 1, 10)),
@@ -173,12 +175,12 @@ export async function POST(request: NextRequest) {
                 params.mask = maskFile;
             }
 
-            console.log('Calling OpenAI edit with params:', {
+            console.log(`Calling ${providerId} edit with params:`, {
                 ...params,
                 image: `[${imageFiles.map((f) => f.name).join(', ')}]`,
                 mask: maskFile ? maskFile.name : 'N/A'
             });
-            result = await openai.images.edit(params);
+            result = await ProviderFactory.editImage(providerId, params);
         } else {
             return NextResponse.json({ error: 'Invalid mode specified' }, { status: 400 });
         }
@@ -191,7 +193,7 @@ export async function POST(request: NextRequest) {
         }
 
         const savedImagesData = await Promise.all(
-            result.data.map(async (imageData, index) => {
+            result.data.map(async (imageData: OpenAIImageResponse['data'][0], index: number) => {
                 if (!imageData.b64_json) {
                     console.error(`Image data ${index} is missing b64_json.`);
                     throw new Error(`Image data at index ${index} is missing base64 data.`);
@@ -203,7 +205,11 @@ export async function POST(request: NextRequest) {
                 const filename = `${timestamp}-${index}.${fileExtension}`;
 
                 if (effectiveStorageMode === 'fs') {
-                    const filepath = path.join(outputDir, filename);
+                    // Create provider/model specific directory
+                    const modelSpecificDir = path.join(outputDir, providerId, modelId);
+                    await ensureOutputDirExists(modelSpecificDir);
+                    
+                    const filepath = path.join(modelSpecificDir, filename);
                     console.log(`Attempting to save image to: ${filepath}`);
                     await fs.writeFile(filepath, buffer);
                     console.log(`Successfully saved image: ${filename}`);
@@ -217,7 +223,8 @@ export async function POST(request: NextRequest) {
                 };
 
                 if (effectiveStorageMode === 'fs') {
-                    imageResult.path = `/api/image/${filename}`;
+                    // Update path to include provider and model directories
+                    imageResult.path = `/api/image/${providerId}/${modelId}/${filename}`;
                 }
 
                 return imageResult;

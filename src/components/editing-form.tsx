@@ -9,6 +9,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
+import { useProviders } from '@/hooks/useProviders';
 import {
     Upload,
     Eraser,
@@ -43,7 +44,7 @@ export type EditingFormData = {
     quality: 'low' | 'medium' | 'high' | 'auto';
     imageFiles: File[];
     maskFile: File | null;
-    model: 'gpt-image-1' | 'gpt-image-1-mini';
+    model: string; // Changed to string to support any model ID
 };
 
 type EditingFormProps = {
@@ -147,6 +148,7 @@ export function EditingForm({
     editMaskPreviewUrl,
     setEditMaskPreviewUrl
 }: EditingFormProps) {
+    const { providerGroups, loading } = useProviders();
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
 
     const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -474,7 +476,7 @@ export function EditingForm({
                             </Button>
                         )}
                     </div>
-                    <CardDescription className='mt-1 text-white/60'>Modify an image using gpt-image-1 or gpt-image-1-mini.</CardDescription>
+                    <CardDescription className='mt-1 text-white/60'>Modify an image using various AI models.</CardDescription>
                 </div>
                 <ModeToggle currentMode={currentMode} onModeChange={onModeChange} />
             </CardHeader>
@@ -484,19 +486,29 @@ export function EditingForm({
                         <Label htmlFor='edit-model-select' className='text-white'>
                             Model
                         </Label>
-                        <Select value={editModel} onValueChange={(value) => setEditModel(value as EditingFormData['model'])} disabled={isLoading}>
+                        <Select value={editModel} onValueChange={(value) => setEditModel(value)} disabled={isLoading || loading}>
                             <SelectTrigger
                                 id='edit-model-select'
                                 className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
                                 <SelectValue placeholder='Select model' />
                             </SelectTrigger>
-                            <SelectContent className='border-white/20 bg-black text-white'>
-                                <SelectItem value='gpt-image-1' className='focus:bg-white/10'>
-                                    gpt-image-1
-                                </SelectItem>
-                                <SelectItem value='gpt-image-1-mini' className='focus:bg-white/10'>
-                                    gpt-image-1-mini
-                                </SelectItem>
+                            <SelectContent className='border-white/20 bg-black text-white max-h-60'>
+                                {providerGroups.map(providerGroup => (
+                                    <React.Fragment key={providerGroup.id}>
+                                        <SelectItem value={`header-${providerGroup.id}`} disabled className='font-bold text-white/80 py-2'>
+                                            {providerGroup.name}
+                                        </SelectItem>
+                                        {providerGroup.models.map(modelOption => (
+                                            <SelectItem 
+                                                key={modelOption.id} 
+                                                value={modelOption.id} 
+                                                className='pl-6 focus:bg-white/10'
+                                            >
+                                                {modelOption.name}
+                                            </SelectItem>
+                                        ))}
+                                    </React.Fragment>
+                                ))}
                             </SelectContent>
                         </Select>
                     </div>

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
+import { readdir } from 'fs/promises';
 
 const outputDir = path.resolve(process.cwd(), 'generated-images');
 
@@ -19,6 +20,50 @@ type FileDeletionResult = {
     success: boolean;
     error?: string;
 };
+
+// Helper function to find a file in all subdirectories
+async function findFileInSubdirs(filename: string): Promise<string | null> {
+    try {
+        const providers = await readdir(outputDir);
+        
+        for (const provider of providers) {
+            const providerPath = path.join(outputDir, provider);
+            const stats = await fs.stat(providerPath);
+            
+            if (stats.isDirectory()) {
+                const models = await readdir(providerPath);
+                
+                for (const model of models) {
+                    const modelPath = path.join(providerPath, model);
+                    const modelStats = await fs.stat(modelPath);
+                    
+                    if (modelStats.isDirectory()) {
+                        const filePath = path.join(modelPath, filename);
+                        try {
+                            await fs.access(filePath);
+                            return filePath; // Found the file
+                        } catch {
+                            // File not in this directory, continue searching
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If not found in subdirectories, check the base directory (for legacy files)
+        const basePath = path.join(outputDir, filename);
+        try {
+            await fs.access(basePath);
+            return basePath;
+        } catch {
+            // File not found anywhere
+            return null;
+        }
+    } catch (error) {
+        console.error('Error searching for file in subdirectories:', error);
+        return null;
+    }
+}
 
 export async function POST(request: NextRequest) {
     console.log('Received POST request to /api/image-delete');
@@ -62,13 +107,20 @@ export async function POST(request: NextRequest) {
     const deletionResults: FileDeletionResult[] = [];
 
     for (const filename of filenames) {
-        if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        if (!filename || filename.includes('..')) {
             console.warn(`Invalid filename for deletion: ${filename}`);
             deletionResults.push({ filename, success: false, error: 'Invalid filename format.' });
             continue;
         }
 
-        const filepath = path.join(outputDir, filename);
+        // Find the file in the directory structure
+        const filepath = await findFileInSubdirs(filename);
+
+        if (!filepath) {
+            console.warn(`File not found for deletion: ${filename}`);
+            deletionResults.push({ filename, success: false, error: 'File not found.' });
+            continue;
+        }
 
         try {
             await fs.unlink(filepath);
@@ -76,11 +128,7 @@ export async function POST(request: NextRequest) {
             deletionResults.push({ filename, success: true });
         } catch (error: unknown) {
             console.error(`Error deleting image ${filepath}:`, error);
-            if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
-                deletionResults.push({ filename, success: false, error: 'File not found.' });
-            } else {
-                deletionResults.push({ filename, success: false, error: 'Failed to delete file.' });
-            }
+            deletionResults.push({ filename, success: false, error: 'Failed to delete file.' });
         }
     }
 

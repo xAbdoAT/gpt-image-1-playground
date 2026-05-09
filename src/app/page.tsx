@@ -14,6 +14,7 @@ import * as React from 'react';
 
 type HistoryImage = {
     filename: string;
+    path?: string; // Add optional path for filesystem mode
 };
 
 export type HistoryMetadata = {
@@ -28,7 +29,7 @@ export type HistoryMetadata = {
     mode: 'generate' | 'edit';
     costDetails: CostDetails | null;
     output_format?: GenerationFormData['output_format'];
-    model?: 'gpt-image-1' | 'gpt-image-1-mini';
+    model?: string;
 };
 
 type DrawnPoint = {
@@ -104,7 +105,7 @@ export default function HomePage() {
     const [editDrawnPoints, setEditDrawnPoints] = React.useState<DrawnPoint[]>([]);
     const [editMaskPreviewUrl, setEditMaskPreviewUrl] = React.useState<string | null>(null);
 
-    const [genModel, setGenModel] = React.useState<GenerationFormData['model']>('gpt-image-1');
+    const [genModel, setGenModel] = React.useState<string>('gpt-image-1');
     const [genPrompt, setGenPrompt] = React.useState('');
     const [genN, setGenN] = React.useState([1]);
     const [genSize, setGenSize] = React.useState<GenerationFormData['size']>('auto');
@@ -114,7 +115,7 @@ export default function HomePage() {
     const [genBackground, setGenBackground] = React.useState<GenerationFormData['background']>('auto');
     const [genModeration, setGenModeration] = React.useState<GenerationFormData['moderation']>('auto');
 
-    const [editModel, setEditModel] = React.useState<EditingFormData['model']>('gpt-image-1');
+    const [editModel, setEditModel] = React.useState<string>('gpt-image-1');
 
     React.useEffect(() => {
         setIsClient(true);
@@ -164,7 +165,15 @@ export default function HomePage() {
             const storedHistory = safeLocalStorage.getItem('openaiImageHistory');
             if (storedHistory) {
                 const parsedHistory: HistoryMetadata[] = JSON.parse(storedHistory);
+                console.log('Loaded history from localStorage:', parsedHistory);
                 if (Array.isArray(parsedHistory)) {
+                    // Log the structure of the first few history items to see if they have the path property
+                    if (parsedHistory.length > 0) {
+                        console.log('First history item structure:', parsedHistory[0]);
+                        if (parsedHistory[0].images && parsedHistory[0].images.length > 0) {
+                            console.log('First image in first history item:', parsedHistory[0].images[0]);
+                        }
+                    }
                     setHistory(parsedHistory);
                 } else {
                     console.warn('Invalid history data found in localStorage.');
@@ -320,7 +329,7 @@ export default function HomePage() {
             setIsPasswordDialogOpen(false);
             if (passwordDialogContext === 'retry' && lastApiCallArgs) {
                 console.log('Retrying API call after password save...');
-                await handleApiCall(lastApiCallArgs[0], hash);
+                await handleApiCall(...lastApiCallArgs);
             }
         } catch (e) {
             console.error('Error hashing password:', e);
@@ -340,7 +349,7 @@ export default function HomePage() {
         return 'image/png';
     };
 
-    const handleApiCall = async (formData: GenerationFormData | EditingFormData, explicitPasswordHash?: string | null) => {
+    const handleApiCall = async (formData: GenerationFormData | EditingFormData) => {
         const startTime = Date.now();
         let durationMs = 0;
 
@@ -349,11 +358,10 @@ export default function HomePage() {
         setLatestImageBatch(null);
         setImageOutputView('grid');
 
-        const effectivePasswordHash = explicitPasswordHash ?? clientPasswordHash;
         const apiFormData = new FormData();
-        if (isPasswordRequiredByBackend && effectivePasswordHash) {
-            apiFormData.append('passwordHash', effectivePasswordHash);
-        } else if (isPasswordRequiredByBackend && !effectivePasswordHash) {
+        if (isPasswordRequiredByBackend && clientPasswordHash) {
+            apiFormData.append('passwordHash', clientPasswordHash);
+        } else if (isPasswordRequiredByBackend && !clientPasswordHash) {
             setError('Password is required. Please configure the password by clicking the lock icon.');
             setPasswordDialogContext('initial');
             setIsPasswordDialogOpen(true);
@@ -451,12 +459,16 @@ export default function HomePage() {
                 }
 
                 const currentModel = mode === 'generate' ? genModel : editModel;
-                const costDetails = calculateApiCost(result.usage, currentModel);
+                // For now, only pass model to cost calculation if it's an OpenAI model
+                const costDetails = calculateApiCost(result.usage, currentModel as 'gpt-image-1' | 'gpt-image-1-mini' | undefined);
 
                 const batchTimestamp = Date.now();
                 const newHistoryEntry: HistoryMetadata = {
                     timestamp: batchTimestamp,
-                    images: result.images.map((img: { filename: string }) => ({ filename: img.filename })),
+                    images: result.images.map((img: { filename: string; path?: string }) => ({ 
+                        filename: img.filename,
+                        path: img.path // Include the full path in history
+                    })),
                     storageModeUsed: effectiveStorageModeClient,
                     durationMs: durationMs,
                     quality: historyQuality,
@@ -585,6 +597,8 @@ export default function HomePage() {
             let path: string | undefined;
             let blob: Blob | undefined;
             
+            console.log(`Processing history image:`, imgInfo);
+            
             if (originalStorageMode === 'indexeddb') {
                 path = getImageSrc(imgInfo.filename);
                 // Try to get blob from IndexedDB
@@ -593,10 +607,20 @@ export default function HomePage() {
                     blob = record.blob;
                 }
             } else {
-                path = `/api/image/${imgInfo.filename}`;
+                // Use the full path if available, otherwise fall back to the old format
+                // Also handle legacy history entries that don't have the path property
+                if (imgInfo.path) {
+                    path = imgInfo.path;
+                    console.log(`Using stored path for image: ${imgInfo.filename} -> ${path}`);
+                } else {
+                    // Legacy format - construct path without provider/model directories
+                    path = `/api/image/${imgInfo.filename}`;
+                    console.log(`Using legacy path for image: ${imgInfo.filename} -> ${path}`);
+                }
             }
 
             if (path) {
+                console.log(`Resolved path for ${imgInfo.filename}: ${path}`);
                 return { path, filename: imgInfo.filename, blob };
             } else {
                 console.warn(
@@ -688,8 +712,15 @@ export default function HomePage() {
                     throw new Error(`Image ${filename} not found in local database.`);
                 }
             } else {
-                console.log(`Fetching image ${filename} from API...`);
-                const response = await fetch(`/api/image/${filename}`);
+                // Use the full path if available in the image batch, otherwise fall back to the old format
+                const imageInfo = latestImageBatch?.find(img => img.filename === filename);
+                console.log(`Looking for image in latestImageBatch: ${filename}`, imageInfo);
+                
+                const imagePath = imageInfo?.path ? imageInfo.path : `/api/image/${filename}`;
+                console.log(`Using path for send to edit: ${filename} -> ${imagePath}`);
+                
+                console.log(`Fetching image ${filename} from API at path: ${imagePath}`);
+                const response = await fetch(imagePath);
                 if (!response.ok) {
                     throw new Error(`Failed to fetch image: ${response.statusText}`);
                 }
