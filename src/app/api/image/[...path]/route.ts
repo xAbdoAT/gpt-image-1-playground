@@ -6,8 +6,20 @@ import path from 'path';
 // Base directory where images are stored
 const imageBaseDir = path.resolve(process.cwd(), 'generated-images');
 
+function toResponseBody(buffer: Buffer): ArrayBuffer {
+    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+}
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
     const { path: pathSegments } = await params;
+    const isDownloadRequest = request.nextUrl.searchParams.get('download') === '1';
+    const cacheHeaders = isDownloadRequest
+        ? {
+              'Cache-Control': 'no-store'
+          }
+        : {
+              'Cache-Control': 'public, max-age=31536000, immutable'
+          };
 
     console.log(`IMAGE ROUTE HANDLING REQUEST: pathSegments =`, pathSegments);
 
@@ -66,11 +78,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                 const contentType = lookup(filename) || 'application/octet-stream';
 
                 console.log(`SUCCESS: Found file at full path: ${fullPath}`);
-                return new NextResponse(fileBuffer, {
+                return new NextResponse(toResponseBody(fileBuffer), {
                     status: 200,
                     headers: {
                         'Content-Type': contentType,
-                        'Content-Length': fileBuffer.length.toString()
+                        'Content-Length': fileBuffer.length.toString(),
+                        ...cacheHeaders,
+                        ...(isDownloadRequest
+                            ? {
+                                  'Content-Disposition': `attachment; filename="${filename}"`
+                              }
+                            : {})
                     }
                 });
             } catch (accessError) {
@@ -100,11 +118,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             const contentType = lookup(filename) || 'application/octet-stream';
             
             console.log(`SUCCESS: Found file in base directory: ${basePath}`);
-            return new NextResponse(fileBuffer, {
+            return new NextResponse(toResponseBody(fileBuffer), {
                 status: 200,
                 headers: {
                     'Content-Type': contentType,
-                    'Content-Length': fileBuffer.length.toString()
+                    'Content-Length': fileBuffer.length.toString(),
+                    ...cacheHeaders,
+                    ...(isDownloadRequest
+                        ? {
+                              'Content-Disposition': `attachment; filename="${filename}"`
+                          }
+                        : {})
                 }
             });
         } catch {
@@ -141,11 +165,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                         const contentType = lookup(filename) || 'application/octet-stream';
                         
                         console.log(`SUCCESS: Found file in provider directory: ${providerFilePath}`);
-                        return new NextResponse(fileBuffer, {
+                        return new NextResponse(toResponseBody(fileBuffer), {
                             status: 200,
                             headers: {
                                 'Content-Type': contentType,
-                                'Content-Length': fileBuffer.length.toString()
+                                'Content-Length': fileBuffer.length.toString(),
+                                ...cacheHeaders,
+                                ...(isDownloadRequest
+                                    ? {
+                                          'Content-Disposition': `attachment; filename="${filename}"`
+                                      }
+                                    : {})
                             }
                         });
                     } catch {
@@ -181,11 +211,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                                     const contentType = lookup(filename) || 'application/octet-stream';
                                     
                                     console.log(`SUCCESS: Found file in model directory: ${filePath}`);
-                                    return new NextResponse(fileBuffer, {
+                                    return new NextResponse(toResponseBody(fileBuffer), {
                                         status: 200,
                                         headers: {
                                             'Content-Type': contentType,
-                                            'Content-Length': fileBuffer.length.toString()
+                                            'Content-Length': fileBuffer.length.toString(),
+                                            ...cacheHeaders,
+                                            ...(isDownloadRequest
+                                                ? {
+                                                      'Content-Disposition': `attachment; filename="${filename}"`
+                                                  }
+                                                : {})
                                         }
                                     });
                                 } catch {

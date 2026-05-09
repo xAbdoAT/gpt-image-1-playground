@@ -45,6 +45,11 @@ export function ImageOutput({
 }: ImageOutputProps) {
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number } | null>(null);
+    const showCarousel = imageBatch && imageBatch.length > 1;
+    const isSingleImageView = typeof viewMode === 'number';
+    const canSendToEdit = !isLoading && isSingleImageView && imageBatch && imageBatch[viewMode];
+    const canDownload = !isLoading && imageBatch && imageBatch.length > 0;
+    const isSingleImage = imageBatch && imageBatch.length === 1;
 
     const handleSendClick = () => {
         // Send to edit only works when a single image is selected
@@ -79,57 +84,14 @@ export function ImageOutput({
         setDownloadProgress({ current: 0, total: imageBatch.length });
         
         try {
-            // Download all images as individual files (not as a ZIP)
             const images: DownloadableImage[] = imageBatch.map(img => ({
                 filename: img.filename,
                 path: img.path,
                 blob: img.blob
             }));
-            
-            // Download images one by one with progress updates
-            for (let i = 0; i < images.length; i++) {
-                const image = images[i];
-                let blob: Blob;
-                
-                if (image.blob) {
-                    blob = image.blob;
-                } else if (image.path.startsWith('blob:')) {
-                    const response = await fetch(image.path);
-                    blob = await response.blob();
-                } else if (image.path.startsWith('/api/image/')) {
-                    const response = await fetch(image.path);
-                    blob = await response.blob();
-                } else {
-                    console.warn(`Skipping invalid image: ${image.filename}`);
-                    continue;
-                }
-                
-                // Create download link for this individual image
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = image.filename;
-                
-                // Trigger download
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                // Clean up this URL immediately
-                URL.revokeObjectURL(url);
-                
-                // Update progress
-                setDownloadProgress({ current: i + 1, total: images.length });
-                
-                // Small delay between downloads to prevent browser issues
-                if (i < images.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
-            }
-            
-            // Show success feedback
+            await downloadMultipleImagesIndividually(images);
+            setDownloadProgress({ current: images.length, total: images.length });
             console.log(`Successfully downloaded ${images.length} images`);
-            // You could add a toast notification here: "Downloaded X images successfully!"
             
         } catch (error) {
             console.error('Bulk download failed:', error);
@@ -139,12 +101,6 @@ export function ImageOutput({
             setDownloadProgress(null);
         }
     };
-
-    const showCarousel = imageBatch && imageBatch.length > 1;
-    const isSingleImageView = typeof viewMode === 'number';
-    const canSendToEdit = !isLoading && isSingleImageView && imageBatch && imageBatch[viewMode];
-    const canDownload = !isLoading && imageBatch && imageBatch.length > 0;
-    const isSingleImage = imageBatch && imageBatch.length === 1;
 
     return (
         <div className='flex h-full min-h-[300px] w-full flex-col items-center justify-between gap-4 overflow-hidden rounded-lg border border-white/20 bg-black p-4'>
@@ -251,15 +207,15 @@ export function ImageOutput({
 
             <div className='flex h-auto min-h-[60px] w-full shrink-0 flex-col items-center justify-center gap-3 p-2 sm:h-10 sm:flex-row sm:gap-4 sm:p-0'>
                 {showCarousel && (
-                    <div className='flex w-full items-center gap-1.5 rounded-md border border-white/10 bg-neutral-800/50 p-1 max-w-full overflow-hidden sm:w-auto'>
+                    <div className='flex w-full items-center gap-2 rounded-xl border border-white/15 bg-neutral-900/80 p-2 shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur sm:w-auto sm:max-w-full'>
                         <Button
                             variant='ghost'
                             size='icon'
                             className={cn(
-                                'h-8 w-8 rounded p-1 flex-shrink-0',
+                                'h-9 w-9 rounded-lg border border-white/10 p-1.5 transition-colors flex-shrink-0',
                                 viewMode === 'grid'
                                     ? 'bg-white/20 text-white'
-                                    : 'text-white/50 hover:bg-white/10 hover:text-white/80'
+                                    : 'bg-transparent text-white/55 hover:bg-white/10 hover:text-white/90'
                             )}
                             onClick={() => onViewChange('grid')}
                             aria-label='Show grid view'>
@@ -267,25 +223,28 @@ export function ImageOutput({
                         </Button>
                         
                         {/* Scrollable thumbnail container */}
-                        <div className='relative flex items-center gap-1 overflow-x-auto scrollbar-hide max-w-[200px] sm:max-w-none'>
+                        <div
+                            className='relative flex w-full items-center gap-2 overflow-x-auto overflow-y-hidden scrollbar-hide overscroll-x-contain overscroll-y-none px-0.5 sm:w-auto'
+                            style={{ touchAction: 'pan-x' }}>
                             {imageBatch.map((img, index) => (
                                 <Button
                                     key={img.filename}
                                     variant='ghost'
-                                    size='icon'
+                                    size='sm'
                                     className={cn(
-                                        'h-8 w-8 overflow-hidden rounded p-0.5 flex-shrink-0',
+                                        'h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg border p-0.5 transition-all duration-200',
                                         viewMode === index
-                                            ? 'ring-2 ring-white ring-offset-1 ring-offset-black'
-                                            : 'opacity-60 hover:opacity-100'
+                                            ? 'scale-[1.04] border-white/70 bg-white/10 ring-2 ring-white/60 ring-offset-1 ring-offset-black'
+                                            : 'border-white/15 opacity-65 hover:opacity-100 hover:border-white/40'
                                     )}
                                     onClick={() => onViewChange(index)}
                                     aria-label={`Select image ${index + 1}`}>
                                     <Image
                                         src={img.path}
                                         alt={`Thumbnail ${index + 1}`}
-                                        width={28}
-                                        height={28}
+                                        width={36}
+                                        height={36}
+                                        draggable={false}
                                         className='h-full w-full object-cover'
                                         unoptimized
                                         onError={(e) => {
@@ -297,9 +256,6 @@ export function ImageOutput({
                                     />
                                 </Button>
                             ))}
-                            
-                            {/* Scroll indicator for mobile */}
-                            <div className='hidden sm:hidden md:block absolute -right-1 top-1/2 transform -translate-y-1/2 w-2 h-2 bg-white/20 rounded-full opacity-60'></div>
                         </div>
                     </div>
                 )}

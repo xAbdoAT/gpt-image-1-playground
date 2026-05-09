@@ -513,7 +513,7 @@ export function EditingForm({
 
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
-            <CardHeader className='flex items-start justify-between border-b border-white/10 pb-4'>
+            <CardHeader className='flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
                     <div className='flex items-center'>
                         <CardTitle className='py-1 text-lg font-medium text-white'>Edit Image</CardTitle>
@@ -538,14 +538,14 @@ export function EditingForm({
                         <Label htmlFor='edit-model-select' className='text-white'>
                             Model
                         </Label>
-                        <div className='flex items-center gap-4'>
+                        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4'>
                             <Select
                                 value={editModel}
                                 onValueChange={(value) => setEditModel(value as EditingFormData['model'])}
                                 disabled={isLoading || loading}>
                                 <SelectTrigger
                                     id='edit-model-select'
-                                    className='w-[200px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
+                                    className='w-full rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50 sm:w-[200px]'>
                                     <SelectValue placeholder='Select model' />
                                 </SelectTrigger>
                                 <SelectContent className='max-h-60 border-white/20 bg-black text-white'>

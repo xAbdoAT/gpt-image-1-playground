@@ -6,41 +6,48 @@ export interface DownloadableImage {
     blob?: Blob;
 }
 
+function isDirectDownloadPath(path: string): boolean {
+    return path.startsWith('/api/image/') || path.startsWith('blob:');
+}
+
+function buildDownloadHref(path: string): string {
+    if (!path.startsWith('/api/image/')) {
+        return path;
+    }
+
+    const separator = path.includes('?') ? '&' : '?';
+    return `${path}${separator}download=1`;
+}
+
+function triggerDownload(href: string, filename: string): void {
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = filename;
+    link.rel = 'noopener';
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
 /**
  * Downloads a single image
  */
 export async function downloadSingleImage(image: DownloadableImage): Promise<void> {
     try {
-        let blob: Blob;
-        
         if (image.blob) {
-            // If we already have the blob, use it directly
-            blob = image.blob;
-        } else if (image.path.startsWith('blob:')) {
-            // If it's a blob URL, fetch the blob
-            const response = await fetch(image.path);
-            blob = await response.blob();
-        } else if (image.path.startsWith('/api/image/')) {
-            // If it's a filesystem path, fetch from API
-            const response = await fetch(image.path);
-            blob = await response.blob();
-        } else {
-            throw new Error('Invalid image path format');
+            const url = URL.createObjectURL(image.blob);
+            triggerDownload(url, image.filename);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            return;
         }
 
-        // Create download link
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = image.filename;
-        
-        // Trigger download
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // Clean up
-        URL.revokeObjectURL(url);
+        if (isDirectDownloadPath(image.path)) {
+            triggerDownload(buildDownloadHref(image.path), image.filename);
+            return;
+        }
+
+        throw new Error('Invalid image path format');
     } catch (error) {
         console.error('Error downloading single image:', error);
         throw new Error('Failed to download image');
@@ -55,34 +62,18 @@ export async function downloadMultipleImagesIndividually(images: DownloadableIma
         // Process images sequentially to avoid overwhelming the browser
         for (let i = 0; i < images.length; i++) {
             const image = images[i];
-            let blob: Blob;
-            
+
             if (image.blob) {
-                blob = image.blob;
-            } else if (image.path.startsWith('blob:')) {
-                const response = await fetch(image.path);
-                blob = await response.blob();
-            } else if (image.path.startsWith('/api/image/')) {
-                const response = await fetch(image.path);
-                blob = await response.blob();
+                const url = URL.createObjectURL(image.blob);
+                triggerDownload(url, image.filename);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } else if (isDirectDownloadPath(image.path)) {
+                triggerDownload(buildDownloadHref(image.path), image.filename);
             } else {
                 console.warn(`Skipping invalid image: ${image.filename}`);
                 continue;
             }
-            
-            // Create download link for this individual image
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = image.filename;
-            
-            // Trigger download
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            // Clean up this URL immediately
-            URL.revokeObjectURL(url);
+
             
             // Small delay between downloads to prevent browser issues
             if (i < images.length - 1) {

@@ -1,10 +1,16 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
+import OpenAI from 'openai';
 import path from 'path';
 import { ProviderFactory } from '@/providers/factory';
 import { getModelById } from '@/providers/registry';
 import { OpenAIImageResponse } from '@/providers/openai/types';
+
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_API_BASE_URL
+});
 
 const outputDir = path.resolve(process.cwd(), 'generated-images');
 
@@ -111,6 +117,180 @@ export async function POST(request: NextRequest) {
 
         if (!mode || !prompt) {
             return NextResponse.json({ error: 'Missing required parameters: mode and prompt' }, { status: 400 });
+        }
+
+        const streamEnabled = formData.get('stream') === 'true';
+        const partialImagesCount = parseInt((formData.get('partial_images') as string) || '2', 10);
+
+        if (streamEnabled) {
+            if (providerId !== 'openai') {
+                return NextResponse.json({ error: 'Streaming is only supported for OpenAI models.' }, { status: 400 });
+            }
+
+            const actualPartialImages = Math.max(1, Math.min(partialImagesCount, 3)) as 1 | 2 | 3;
+            const encoder = new TextEncoder();
+            const timestamp = Date.now();
+
+            const streamParamsBase: Record<string, unknown> = {
+                model: modelId,
+                prompt
+            };
+
+            if (mode === 'generate') {
+                const n = parseInt((formData.get('n') as string) || '1', 10);
+                const size = (formData.get('size') as string) || '1024x1024';
+                const quality = (formData.get('quality') as string) || 'auto';
+                const output_format = (formData.get('output_format') as string) || 'png';
+                const output_compression_str = formData.get('output_compression') as string | null;
+                const background = (formData.get('background') as string) || 'auto';
+                const moderation = (formData.get('moderation') as string) || 'auto';
+
+                Object.assign(streamParamsBase, {
+                    n: Math.max(1, Math.min(n || 1, 10)),
+                    size,
+                    quality,
+                    output_format,
+                    background,
+                    moderation
+                });
+
+                if ((output_format === 'jpeg' || output_format === 'webp') && output_compression_str) {
+                    const compression = parseInt(output_compression_str, 10);
+                    if (!isNaN(compression) && compression >= 0 && compression <= 100) {
+                        Object.assign(streamParamsBase, { output_compression: compression });
+                    }
+                }
+            } else {
+                const n = parseInt((formData.get('n') as string) || '1', 10);
+                const size = (formData.get('size') as string) || 'auto';
+                const quality = (formData.get('quality') as string) || 'auto';
+
+                const imageFiles: File[] = [];
+                for (const [key, value] of formData.entries()) {
+                    if (key.startsWith('image_') && value instanceof File) {
+                        imageFiles.push(value);
+                    }
+                }
+
+                if (imageFiles.length === 0) {
+                    return NextResponse.json({ error: 'No image file provided for editing.' }, { status: 400 });
+                }
+
+                Object.assign(streamParamsBase, {
+                    n: Math.max(1, Math.min(n || 1, 10)),
+                    size: size === 'auto' ? undefined : size,
+                    quality: quality === 'auto' ? undefined : quality,
+                    image: imageFiles
+                });
+
+                const maskFile = formData.get('mask') as File | null;
+                if (maskFile) {
+                    Object.assign(streamParamsBase, { mask: maskFile });
+                }
+            }
+
+            const readableStream = new ReadableStream({
+                async start(controller) {
+                    try {
+                        const completedImages: Array<{ filename: string; b64_json: string; path?: string; output_format: string }> = [];
+                        let finalUsage: OpenAI.Images.ImagesResponse['usage'] | undefined;
+                        let imageIndex = 0;
+
+                        const stream =
+                            mode === 'generate'
+                                ? await openai.images.generate({
+                                      ...(streamParamsBase as any),
+                                      stream: true,
+                                      partial_images: actualPartialImages
+                                  })
+                                : await openai.images.edit({
+                                      ...(streamParamsBase as any),
+                                      stream: true,
+                                      partial_images: actualPartialImages
+                                  });
+
+                        for await (const event of stream as any) {
+                            if (event.type === 'image_generation.partial_image') {
+                                controller.enqueue(
+                                    encoder.encode(
+                                        `data: ${JSON.stringify({
+                                            type: 'partial_image',
+                                            index: imageIndex,
+                                            partial_image_index: event.partial_image_index,
+                                            b64_json: event.b64_json
+                                        })}\n\n`
+                                    )
+                                );
+                            } else if (event.type === 'image_generation.completed') {
+                                const fileExtension = validateOutputFormat(
+                                    mode === 'generate'
+                                        ? (formData.get('output_format') as string)
+                                        : 'png'
+                                );
+                                const filename = `${timestamp}-${imageIndex}.${fileExtension}`;
+
+                                if (event.b64_json) {
+                                    const buffer = Buffer.from(event.b64_json, 'base64');
+
+                                    if (effectiveStorageMode === 'fs') {
+                                        const modelSpecificDir = path.join(outputDir, providerId, modelId);
+                                        await ensureOutputDirExists(modelSpecificDir);
+                                        await fs.writeFile(path.join(modelSpecificDir, filename), buffer);
+                                    }
+
+                                    completedImages.push({
+                                        filename,
+                                        b64_json: event.b64_json,
+                                        output_format: fileExtension,
+                                        path:
+                                            effectiveStorageMode === 'fs'
+                                                ? `/api/image/${providerId}/${modelId}/${filename}`
+                                                : undefined
+                                    });
+                                }
+
+                                imageIndex += 1;
+                                finalUsage = event.usage ?? finalUsage;
+                            } else if (event.type === 'error') {
+                                controller.enqueue(
+                                    encoder.encode(`data: ${JSON.stringify({ type: 'error', error: event.error?.message || 'Streaming error occurred' })}\n\n`)
+                                );
+                                controller.close();
+                                return;
+                            }
+                        }
+
+                        controller.enqueue(
+                            encoder.encode(
+                                `data: ${JSON.stringify({
+                                    type: 'done',
+                                    images: completedImages,
+                                    usage: finalUsage
+                                })}\n\n`
+                            )
+                        );
+                        controller.close();
+                    } catch (error) {
+                        controller.enqueue(
+                            encoder.encode(
+                                `data: ${JSON.stringify({
+                                    type: 'error',
+                                    error: error instanceof Error ? error.message : 'An unexpected streaming error occurred.'
+                                })}\n\n`
+                            )
+                        );
+                        controller.close();
+                    }
+                }
+            });
+
+            return new Response(readableStream, {
+                headers: {
+                    'Content-Type': 'text/event-stream; charset=utf-8',
+                    'Cache-Control': 'no-cache, no-transform',
+                    Connection: 'keep-alive'
+                }
+            });
         }
 
         let result: any;
