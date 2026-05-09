@@ -842,7 +842,6 @@ export default function HomePage() {
             } finally {
                 setItemToDeleteConfirm(null);
             }
-            }
         },
         [isPasswordRequiredByBackend, clientPasswordHash]
     );
