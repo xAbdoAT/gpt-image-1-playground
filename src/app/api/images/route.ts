@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
         }
 
         const savedImagesData = await Promise.all(
-            result.data.map(async (imageData: OpenAIImageResponse['data'][0], index: number) => {
+            (result.data ?? []).map(async (imageData: NonNullable<OpenAIImageResponse['data']>[0], index: number) => {
                 if (!imageData.b64_json) {
                     console.error(`Image data ${index} is missing b64_json.`);
                     throw new Error(`Image data at index ${index} is missing base64 data.`);

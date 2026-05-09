@@ -32,7 +32,7 @@ export interface EditParams {
 }
 
 export interface ImageResponse {
-  data: Array<{
+  data?: Array<{
     b64_json?: string;
     url?: string;
     revised_prompt?: string;

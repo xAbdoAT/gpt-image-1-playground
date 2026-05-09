@@ -23,7 +23,7 @@ export type OpenAIImageEditParams = {
 };
 
 export type OpenAIImageResponse = {
-  data: Array<{
+  data?: Array<{
     b64_json?: string;
     revised_prompt?: string;
     url?: string;
